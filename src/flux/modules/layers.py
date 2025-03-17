@@ -257,7 +257,11 @@ class SingleStreamBlock(nn.Module):
             if info['inverse']:
                 info['feature'][feature_name] = v.cpu()
             else:
-                v = info['feature'][feature_name].cuda()
+                # v = info['feature'][feature_name].cuda()
+                v_share = info['feature'][feature_name].cuda()
+                dot_product = (v * v_share).sum(dim=-1, keepdim=True)
+                v_norm_sq = (v ** 2).sum(dim=-1, keepdim=True)
+                v = (dot_product / v_norm_sq) * v
 
 
         # compute attention
