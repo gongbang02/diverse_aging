@@ -259,6 +259,7 @@ class SingleStreamBlock(nn.Module):
             else:
                 v = info['feature'][feature_name].cuda()
 
+
         # compute attention
         attn = attention(q, k, v, pe=pe)
         # compute activation in mlp stream, cat again and run second linear layer

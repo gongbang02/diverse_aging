@@ -16,6 +16,8 @@ from transformers import pipeline
 from PIL import Image
 import numpy as np
 
+from diffusers import AutoPipelineForText2Image
+
 import os
 
 NSFW_THRESHOLD = 0.85
@@ -86,11 +88,43 @@ def main(
     if num_steps is None:
         num_steps = 4 if name == "flux-schnell" else 25
 
-    # init all components
+    # Load LoRA weights if specified
+    if args.lora_path:
+        # First load the base model
+        pipe = AutoPipelineForText2Image.from_pretrained(
+            "/playpen-nas-ssd/gongbang/.cache/huggingface/hub/models--black-forest-labs--FLUX.1-dev/snapshots/0ef5fff789c832c5c7f4e127f94c8b54bbcced44", 
+            torch_dtype=torch.bfloat16,
+            use_peft=True
+        )
+        # Load LoRA weights
+        pipe.load_lora_weights(
+            args.lora_path, 
+            weight_name='pytorch_lora_weights.safetensors'
+        )
+        # Extract the state dict
+        model_state_dict = pipe.transformer.state_dict()
+        del pipe  # Free memory
+    else:
+        model_state_dict = None
+
     t5 = load_t5(torch_device, max_length=256 if name == "flux-schnell" else 512)
     clip = load_clip(torch_device)
     model = load_flow_model(name, device="cpu" if offload else torch_device)
     ae = load_ae(name, device="cpu" if offload else torch_device)
+
+    # Apply LoRA weights if available
+    if model_state_dict is not None:
+        model.load_state_dict(model_state_dict, strict=False)
+        print('loaded lora for transformer')
+        # for k, v in model_state_dict.items():
+        #     if "lora" in k:
+        #         print(k)
+        
+        # sanity check: Verify the model has LoRA weights
+        has_lora = any("lora" in k for k in model_state_dict.keys())
+        if not has_lora:
+            print("Warning: No LoRA weights found in the loaded state dict!")
+    
 
     if offload:
         model.cpu()
@@ -242,6 +276,8 @@ if __name__ == "__main__":
     parser.add_argument('--output_dir', default='output', type=str,
                         help='the path of the edited image')
     parser.add_argument('--offload', action='store_true', help='set it to True if the memory of GPU is not enough')
+    parser.add_argument('--lora_path', type=str, default=None,
+                        help='Path to LoRA weights directory')
 
     args = parser.parse_args()
 
