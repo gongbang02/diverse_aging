@@ -9,14 +9,12 @@ from einops import rearrange
 from fire import Fire
 from PIL import ExifTags, Image
 
-from flux.sampling import denoise, get_schedule, prepare, unpack
+from flux.sampling import denoise_midpoint, denoise_fireflow, denoise_rf_solver, denoise, get_schedule, prepare, unpack
 from flux.util import (configs, embed_watermark, load_ae, load_clip,
-                       load_flow_model, load_t5)
+                       load_flow_model, load_t5, save_velocity_distribution)
 from transformers import pipeline
 from PIL import Image
 import numpy as np
-
-from diffusers import AutoPipelineForText2Image
 
 import os
 
@@ -77,6 +75,11 @@ def main(
     output_dir = args.output_dir
     num_steps = args.num_steps
     offload = args.offload
+    prefix = args.output_prefix
+    inject = args.inject
+    start_layer_index = args.start_layer_index
+    end_layer_index = args.end_layer_index
+    seed = args.seed if args.seed > 0 else None
 
     nsfw_classifier = pipeline("image-classification", model="Falconsai/nsfw_image_detection", device=device)
 
@@ -88,60 +91,29 @@ def main(
     if num_steps is None:
         num_steps = 4 if name == "flux-schnell" else 25
 
-    # Load LoRA weights if specified
-    if args.lora_path:
-        # First load the base model
-        pipe = AutoPipelineForText2Image.from_pretrained(
-            "/playpen-nas-ssd/gongbang/.cache/huggingface/hub/models--black-forest-labs--FLUX.1-dev/snapshots/0ef5fff789c832c5c7f4e127f94c8b54bbcced44", 
-            torch_dtype=torch.bfloat16,
-            use_peft=True
-        )
-        # Load LoRA weights
-        pipe.load_lora_weights(
-            args.lora_path, 
-            weight_name='pytorch_lora_weights.safetensors'
-        )
-        # Extract the state dict
-        model_state_dict = pipe.transformer.state_dict()
-        del pipe  # Free memory
-    else:
-        model_state_dict = None
-
+    # init all components
     t5 = load_t5(torch_device, max_length=256 if name == "flux-schnell" else 512)
     clip = load_clip(torch_device)
     model = load_flow_model(name, device="cpu" if offload else torch_device)
     ae = load_ae(name, device="cpu" if offload else torch_device)
 
-    # Apply LoRA weights if available
-    if model_state_dict is not None:
-        model.load_state_dict(model_state_dict, strict=False)
-        print('loaded lora for transformer')
-        # for k, v in model_state_dict.items():
-        #     if "lora" in k:
-        #         print(k)
-        
-        # sanity check: Verify the model has LoRA weights
-        has_lora = any("lora" in k for k in model_state_dict.keys())
-        if not has_lora:
-            print("Warning: No LoRA weights found in the loaded state dict!")
-    
-
     if offload:
         model.cpu()
         torch.cuda.empty_cache()
         ae.encoder.to(torch_device)
-    
+   
     init_image = None
-    init_image = np.array(Image.open(args.source_img_dir).convert('RGB'))
-    
-    shape = init_image.shape
+    init_image_array = np.array(Image.open(args.source_img_dir).convert('RGB'))
+    shape = init_image_array.shape
 
     new_h = shape[0] if shape[0] % 16 == 0 else shape[0] - shape[0] % 16
     new_w = shape[1] if shape[1] % 16 == 0 else shape[1] - shape[1] % 16
 
-    init_image = init_image[:new_h, :new_w, :]
-
+    init_image = init_image_array[:new_h, :new_w, :]
     width, height = init_image.shape[0], init_image.shape[1]
+    
+    t0 = time.perf_counter()
+    
     init_image = encode(init_image, torch_device, ae)
 
     rng = torch.Generator(device="cpu")
@@ -162,7 +134,6 @@ def main(
         if opts.seed is None:
             opts.seed = rng.seed()
         print(f"Generating with seed {opts.seed}:\n{opts.source_prompt}")
-        t0 = time.perf_counter()
 
         opts.seed = None
         if offload:
@@ -173,7 +144,17 @@ def main(
         info = {}
         info['feature_path'] = args.feature_path
         info['feature'] = {}
-        info['inject_step'] = args.inject
+        info['inject_step'] = inject
+        info['start_layer_index'] = start_layer_index
+        info['end_layer_index'] = end_layer_index
+        info['reuse_v']= args.reuse_v
+        info['editing_strategy']= args.editing_strategy
+        info['qkv_ratio'] = list(map(float, args.qkv_ratio.split(',')))
+        
+        prefix += '_inject_' + str(inject)
+        prefix += '_start_layer_index_' + str(start_layer_index)
+        prefix += '_end_layer_index_' + str(end_layer_index)
+        
         if not os.path.exists(args.feature_path):
             os.mkdir(args.feature_path)
 
@@ -186,16 +167,25 @@ def main(
             t5, clip = t5.cpu(), clip.cpu()
             torch.cuda.empty_cache()
             model = model.to(torch_device)
+        
+        denoise_strategies = {
+            'reflow' : denoise,
+            'rf_solver' : denoise_rf_solver,
+            'fireflow' : denoise_fireflow,
+            'rf_midpoint' : denoise_midpoint,
+        }
+        if args.sampling_strategy not in denoise_strategies:
+            raise ExceptionType("Unknown denoising strategy")
+        denoise_strategy = denoise_strategies[args.sampling_strategy]
 
         # inversion initial noise
-        z, info = denoise(model, **inp, timesteps=timesteps, guidance=1, inverse=True, info=info)
-        
+        z, info = denoise_strategy(model, **inp, timesteps=timesteps, guidance=1, inverse=True, info=info)
         inp_target["img"] = z
 
         timesteps = get_schedule(opts.num_steps, inp_target["img"].shape[1], shift=(name != "flux-schnell"))
 
         # denoise initial noise
-        x, _ = denoise(model, **inp_target, timesteps=timesteps, guidance=guidance, inverse=False, info=info)
+        x, _ = denoise_strategy(model, **inp_target, timesteps=timesteps, guidance=guidance, inverse=False, info=info)
         
         if offload:
             model.cpu()
@@ -207,7 +197,7 @@ def main(
 
         for x in batch_x:
             x = x.unsqueeze(0)
-            output_name = os.path.join(output_dir, "img_{idx}.jpg")
+            output_name = os.path.join(output_dir, prefix + "_img_{idx}.jpg")
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
                 idx = 0
@@ -273,12 +263,25 @@ if __name__ == "__main__":
                         help='the number of timesteps for inversion and denoising')
     parser.add_argument('--inject', type=int, default=20,
                         help='the number of timesteps which apply the feature sharing')
+    parser.add_argument('--start_layer_index', type=int, default=20,
+                        help='the number of block which starts to apply the feature sharing')
+    parser.add_argument('--end_layer_index', type=int, default=37,
+                        help='the number of block which ends to apply the feature sharing')
     parser.add_argument('--output_dir', default='output', type=str,
                         help='the path of the edited image')
+    parser.add_argument('--output_prefix', default='editing', type=str,
+                        help='prefix name of the edited image')
+    parser.add_argument('--sampling_strategy', default='rf_solver', type=str,
+                        help='method used to conduct sampling at inference time')
     parser.add_argument('--offload', action='store_true', help='set it to True if the memory of GPU is not enough')
-    parser.add_argument('--lora_path', type=str, default=None,
-                        help='Path to LoRA weights directory')
-
+    parser.add_argument('--reuse_v', type=int, default=1,
+                        help='reuse v during inversion and reconstruction/editing')
+    parser.add_argument('--editing_strategy', default='replace_v', type=str,
+                        help='strategy for editing')
+    parser.add_argument('--qkv_ratio', type=str, default='1.0,1.0,1.0', help='A string of comma-separated float numbers')
+    parser.add_argument('--seed', type=int, default=0,
+                        help='random seed')
+    
     args = parser.parse_args()
-
+    
     main(args)

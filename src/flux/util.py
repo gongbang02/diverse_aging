@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 
+import pickle
 import torch
 from einops import rearrange
 from huggingface_hub import hf_hub_download
@@ -10,6 +11,7 @@ from safetensors.torch import load_file as load_sft
 from flux.model import Flux, FluxParams
 from flux.modules.autoencoder import AutoEncoder, AutoEncoderParams
 from flux.modules.conditioner import HFEmbedder
+from flux.sampling import unpack
 
 
 @dataclass
@@ -193,6 +195,12 @@ class WatermarkEmbedder:
         image = 2 * image - 1
         return image
 
+def save_velocity_distribution(info, prefix=""):
+    velocity_list = info['velocity']
+    pkl_file_name = prefix + "_velocity.pkl"
+    with open(pkl_file_name, "wb") as f:
+        pickle.dump(velocity_list, f)
+    print("List saved to " + pkl_file_name)
 
 # A fixed 48-bit message that was chosen at random
 WATERMARK_MESSAGE = 0b001010101111111010000111100111001111010100101110

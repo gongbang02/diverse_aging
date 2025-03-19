@@ -168,14 +168,6 @@ class DoubleStreamBlock(nn.Module):
 
         img_q, img_k = self.img_attn.norm(img_q, img_k, img_v)
 
-        # if info['inject']:
-        #     if info['inverse']:
-        #         print("!save! ",info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'])
-        #         torch.save(img_q, info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'Q' + '.pth')
-        #     if not info['inverse']:
-        #         print("!load! ", info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'])
-        #         img_q = torch.load(info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'Q' + '.pth', weights_only=True)
-
         # prepare txt for attention
         txt_modulated = self.txt_norm1(txt)
         txt_modulated = (1 + txt_mod1.scale) * txt_modulated + txt_mod1.shift
@@ -243,26 +235,53 @@ class SingleStreamBlock(nn.Module):
         q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         q, k = self.norm(q, k, v)
 
-        # Note: If the memory of your device is not enough, you may consider uncomment the following code.
-        # if info['inject'] and info['id'] > 19:
-        #     store_path = os.path.join(info['feature_path'], str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V' + '.pth')
-        #     if info['inverse']:
-        #         torch.save(v, store_path)
-        #     if not info['inverse']:
-        #         v = torch.load(store_path, weights_only=True)
-
         # Save the features in the memory
-        if info['inject'] and info['id'] > 19:
-            feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
+        if info['inject'] and info['id'] <= info['end_layer_index'] and info['id'] >= info['start_layer_index']:
+            v_feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
+            k_feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'K'
+            q_feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'Q'
             if info['inverse']:
-                info['feature'][feature_name] = v.cpu()
+                if info['reuse_v']:
+                    info['feature'][v_feature_name] = v.cpu()
+                else:
+                    editing_strategy = info['editing_strategy']
+                    qkv_ratio = info['qkv_ratio']
+                    if 'q' in editing_strategy:
+                        info['feature'][q_feature_name] = (q * qkv_ratio[0]).cpu()
+                    if 'k' in editing_strategy:
+                        info['feature'][k_feature_name] = (k * qkv_ratio[1]).cpu()
+                    if 'v' in editing_strategy:
+                        info['feature'][v_feature_name] = (v * qkv_ratio[2]).cpu()
             else:
-                # v = info['feature'][feature_name].cuda()
-                v_share = info['feature'][feature_name].cuda()
-                dot_product = (v * v_share).sum(dim=-1, keepdim=True)
-                v_norm_sq = (v ** 2).sum(dim=-1, keepdim=True)
-                v = (dot_product / v_norm_sq) * v
-
+                if info['reuse_v']:
+                    if v_feature_name in info['feature']:
+                        v = info['feature'][v_feature_name].cuda()
+                else:
+                    editing_strategy = info['editing_strategy']
+                    if 'replace_v' in editing_strategy:
+                        if v_feature_name in info['feature']:
+                            v = info['feature'][v_feature_name].cuda()
+                    if 'project_v' in editing_strategy:
+                        if v_feature_name in info['feature']:
+                            v_share = info['feature'][v_feature_name].cuda()
+                            dot_product = (v * v_share).sum(dim=-1, keepdim=True)
+                            v_norm_sq = (v ** 2).sum(dim=-1, keepdim=True)
+                            v = (dot_product / v_norm_sq) * v
+                    if 'add_v' in editing_strategy:
+                        if v_feature_name in info['feature']:
+                            v += info['feature'][v_feature_name].cuda()
+                    if 'replace_k' in editing_strategy:
+                        if k_feature_name in info['feature']:
+                            k = info['feature'][k_feature_name].cuda()
+                    if 'add_k' in editing_strategy:
+                        if k_feature_name in info['feature']:
+                            k += info['feature'][k_feature_name].cuda()
+                    if 'replace_q' in editing_strategy:
+                        if q_feature_name in info['feature']:
+                            q = info['feature'][q_feature_name].cuda()
+                    if 'add_q' in editing_strategy:
+                        if q_feature_name in info['feature']:
+                            q += info['feature'][q_feature_name].cuda()
 
         # compute attention
         attn = attention(q, k, v, pe=pe)
