@@ -6,8 +6,35 @@ from einops import rearrange
 from torch import Tensor, nn
 
 from flux.math import attention, rope
+from PIL import Image
 
 import os
+import torch.nn.functional as F
+import numpy as np
+import cv2  # OpenCV for saving images
+
+def save_alpha_as_image(alpha, block_id, save_path, chunk_width=512):
+    os.makedirs(save_path, exist_ok=True)
+
+    # Convert to float32 and numpy
+    alpha_np = alpha.float().cpu().detach().numpy()
+    alpha_np = alpha_np.squeeze(-1).squeeze(0)  # Shape: [24, 4608]
+
+    # Split along width into chunks
+    num_chunks = alpha_np.shape[1] // chunk_width
+    slices = np.split(alpha_np, num_chunks, axis=1)  # List of [24, chunk_width] arrays
+
+    # Stack slices vertically
+    alpha_stacked = np.vstack(slices)  # Shape: [24*num_chunks, chunk_width]
+
+    # Normalize to 0-255 for visualization
+    alpha_stacked = (alpha_stacked - alpha_stacked.min()) / (alpha_stacked.max() - alpha_stacked.min()) * 255
+    alpha_stacked = alpha_stacked.astype(np.uint8)
+
+    # Save image
+    image_path = os.path.join(save_path, f"alpha_block_{block_id}.png")
+    cv2.imwrite(image_path, alpha_stacked)
+    print(f"Saved: {image_path}")
 
 class EmbedND(nn.Module):
     def __init__(self, dim: int, theta: int, axes_dim: list[int]):
@@ -176,12 +203,29 @@ class DoubleStreamBlock(nn.Module):
         #         print("!load! ", info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'])
         #         img_q = torch.load(info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'Q' + '.pth', weights_only=True)
 
+        # if info['inject']:
+        #     feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
+        #     if info['inverse']:
+        #         info['feature'][feature_name] = img_v.cpu()
+        #     else:
+        #         img_v_share = info['feature'][feature_name].cuda()
+        #         dot_product = (img_v_share * img_v).sum(dim=-1, keepdim=True)
+        #         img_v_norm_sq = (img_v * img_v).sum(dim=-1, keepdim=True)
+        #         alpha = dot_product / (img_v_norm_sq + 1e-10)
+
+        #         # Save the alpha as image
+        #         # save_alpha_as_image(alpha, info['id'], "/playpen-nas-ssd/gongbang/exp_output/alpha_vis/elizabeth/90")
+
+        #         alpha = alpha.repeat(1, 1, 1, img_v.shape[-1])
+        #         img_v = img_v_share + 0.7 * alpha * img_v
+
         # prepare txt for attention
         txt_modulated = self.txt_norm1(txt)
         txt_modulated = (1 + txt_mod1.scale) * txt_modulated + txt_mod1.shift
         txt_qkv = self.txt_attn.qkv(txt_modulated)
         txt_q, txt_k, txt_v = rearrange(txt_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         txt_q, txt_k = self.txt_attn.norm(txt_q, txt_k, txt_v)
+
 
         # run actual attention
         q = torch.cat((txt_q, img_q), dim=2) #[8, 24, 512, 128] + [8, 24, 900, 128] -> [8, 24, 1412, 128]
@@ -252,16 +296,22 @@ class SingleStreamBlock(nn.Module):
         #         v = torch.load(store_path, weights_only=True)
 
         # Save the features in the memory
-        if info['inject'] and info['id'] > 19:
+        if info['inject']:
             feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
             if info['inverse']:
                 info['feature'][feature_name] = v.cpu()
             else:
-                # v = info['feature'][feature_name].cuda()
                 v_share = info['feature'][feature_name].cuda()
-                dot_product = (v * v_share).sum(dim=-1, keepdim=True)
-                v_norm_sq = (v ** 2).sum(dim=-1, keepdim=True)
-                v = (dot_product / v_norm_sq) * v
+                dot_product = (v_share * v).sum(dim=-1, keepdim=True)
+                v_norm_sq = (v * v).sum(dim=-1, keepdim=True)
+                alpha = dot_product / (v_norm_sq + 1e-10)
+
+                # Save the alpha as image
+                # save_alpha_as_image(alpha, info['id'], "/playpen-nas-ssd/gongbang/exp_output/alpha_vis/elizabeth/90")
+
+                alpha = alpha.repeat(1, 1, 1, v.shape[-1])
+                weight = info['id'] / 38
+                v = (1 - weight) * v_share + weight * alpha * v
 
 
         # compute attention

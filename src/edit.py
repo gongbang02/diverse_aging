@@ -207,17 +207,11 @@ def main(
 
         for x in batch_x:
             x = x.unsqueeze(0)
-            output_name = os.path.join(output_dir, "img_{idx}.jpg")
+            output_name = os.path.join(output_dir, f"img_{args.target_age}.jpg")
+            
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
-                idx = 0
-            else:
-                fns = [fn for fn in iglob(output_name.format(idx="*")) if re.search(r"img_[0-9]+\.jpg$", fn)]
-                if len(fns) > 0:
-                    idx = max(int(fn.split("_")[-1].split(".")[0]) for fn in fns) + 1
-                else:
-                    idx = 0
-
+            
             with torch.autocast(device_type=torch_device.type, dtype=torch.bfloat16):
                 x = ae.decode(x)
 
@@ -225,33 +219,28 @@ def main(
                 torch.cuda.synchronize()
             t1 = time.perf_counter()
 
-            fn = output_name.format(idx=idx)
-            print(f"Done in {t1 - t0:.1f}s. Saving {fn}")
-            # bring into PIL format and save
+            print(f"Done in {t1 - t0:.1f}s. Saving {output_name}")
             x = x.clamp(-1, 1)
             x = embed_watermark(x.float())
             x = rearrange(x[0], "c h w -> h w c")
 
             img = Image.fromarray((127.5 * (x + 1.0)).cpu().byte().numpy())
-            nsfw_score = [x["score"] for x in nsfw_classifier(img) if x["label"] == "nsfw"][0]
+            # nsfw_score = [x["score"] for x in nsfw_classifier(img) if x["label"] == "nsfw"][0]
             
-            if nsfw_score < NSFW_THRESHOLD:
-                exif_data = Image.Exif()
-                exif_data[ExifTags.Base.Software] = "AI generated;txt2img;flux"
-                exif_data[ExifTags.Base.Make] = "Black Forest Labs"
-                exif_data[ExifTags.Base.Model] = name
-                if add_sampling_metadata:
-                    exif_data[ExifTags.Base.ImageDescription] = source_prompt
-                img.save(fn, exif=exif_data, quality=95, subsampling=0)
-                idx += 1
-            else:
-                print("Your generated image may contain NSFW content.")
+            # exif_data = Image.Exif()
+            # exif_data[ExifTags.Base.Software] = "AI generated;txt2img;flux"
+            # exif_data[ExifTags.Base.Make] = "Black Forest Labs"
+            # exif_data[ExifTags.Base.Model] = name
+            # if add_sampling_metadata:
+            #     exif_data[ExifTags.Base.ImageDescription] = source_prompt
+            img.save(output_name)
 
             if loop:
                 print("-" * 80)
                 opts = parse_prompt(opts)
             else:
                 opts = None
+
 
 if __name__ == "__main__":
     
@@ -278,6 +267,8 @@ if __name__ == "__main__":
     parser.add_argument('--offload', action='store_true', help='set it to True if the memory of GPU is not enough')
     parser.add_argument('--lora_path', type=str, default=None,
                         help='Path to LoRA weights directory')
+    parser.add_argument('--target_age', type=int, default=30,
+                        help='the target age for editing')
 
     args = parser.parse_args()
 
