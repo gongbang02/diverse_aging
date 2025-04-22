@@ -102,20 +102,20 @@ class Flux(nn.Module):
         pe = self.pe_embedder(ids)
 
 
-        cnt = 0
+        cnt_double = 0
         info['type'] = 'double'
         for block in self.double_blocks:
-            info['id'] = cnt
+            info['id_double'] = cnt_double
             img, txt = block(img=img, txt=txt, vec=vec, pe=pe, info=info)
-            cnt += 1
+            cnt_double += 1
 
-        cnt = 0
+        cnt_single = 0
         img = torch.cat((txt, img), 1) 
         info['type'] = 'single'
         for block in self.single_blocks:
-            info['id'] = cnt
+            info['id_single'] = cnt_single
             img, info = block(img, vec=vec, pe=pe, info=info)
-            cnt += 1
+            cnt_single += 1
 
         img = img[:, txt.shape[1] :, ...]
 

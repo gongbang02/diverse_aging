@@ -203,31 +203,6 @@ class DoubleStreamBlock(nn.Module):
         #         print("!load! ", info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'])
         #         img_q = torch.load(info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'Q' + '.pth', weights_only=True)
 
-        if info['inject']:
-            feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
-            # print("Double block feature name: ", feature_name)
-            if info['inverse']:
-                info['feature'][feature_name] = img_v.cpu()
-                # print("Saved img V from inversion branch in DOUBLE BLOCK")
-            else:
-                # print("Using saved img V in the editing branch in DOUBLE BLOCK")
-                img_v_share = info['feature'][feature_name].cuda()
-                dot_product = (img_v_share * img_v).sum(dim=-1, keepdim=True)
-                img_v_norm_sq = (img_v * img_v).sum(dim=-1, keepdim=True)
-                alpha = dot_product / (img_v_norm_sq + 1e-10)
-
-                # Save the alpha as image
-                # save_alpha_as_image(alpha, info['id'], "/playpen-nas-ssd/gongbang/exp_output/alpha_vis/elizabeth/90")
-
-                alpha = alpha.repeat(1, 1, 1, img_v.shape[-1])
-                img_v = alpha * img_v
-
-                # info['feature'][feature_name] = img_v.cpu()
-                # print("Successfully updated img_v to img_v used in editing in DOUBLE BLOCK")
-
-                # v_ref = torch.load(f"/playpen-nas-ssd/luchao/projects/RF-Solver-Edit/feature/age_editing_directions/mytm_pair/{feature_name}.pth", weights_only=True).cuda().to(torch.bfloat16)[:, :, 512:, :]
-                # v_ref_weight = 0.5
-                # img_v = img_v - v_ref_weight * v_ref
 
         # prepare txt for attention
         txt_modulated = self.txt_norm1(txt)
@@ -243,6 +218,53 @@ class DoubleStreamBlock(nn.Module):
         q = torch.cat((txt_q, img_q), dim=2) #[8, 24, 512, 128] + [8, 24, 900, 128] -> [8, 24, 1412, 128]
         k = torch.cat((txt_k, img_k), dim=2)
         v = torch.cat((txt_v, img_v), dim=2)
+
+        if info['inject']:
+            feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id_double']) + '_' + info['type'] + '_' + 'V'
+            feature_k = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id_double']) + '_' + info['type'] + '_' + 'K'
+            # print("Double block feature name: ", feature_name)
+            if info['inverse']:
+                info['feature'][feature_name] = v.cpu()
+                info['feature'][feature_k] = k.cpu()
+                # print("Saved img V from inversion branch in DOUBLE BLOCK")
+            else:
+                # k_share = info['feature'][feature_k].cuda()
+                # k_dot_product = (k_share * k).sum(dim=-1, keepdim=True)
+                # k_norm_sq = (k * k).sum(dim=-1, keepdim=True)
+                # k_alpha = k_dot_product / (k_norm_sq + 1e-10)
+
+                # k_alpha = k_alpha.repeat(1, 1, 1, k.shape[-1])
+                # k_alpha[:, :, :512, :] = 1.0
+
+                # k = k_alpha * k
+                k_inversion = info['feature'][feature_k].cuda()
+    
+                # Fixed guidance strength parameter
+                guidance_strength = 0.3  # Adjust this value to control identity-vs-edit balance
+                
+                cross_attn = torch.matmul(k, k_inversion.transpose(-1, -2)) / math.sqrt(k.shape[-1])
+                cross_attn = torch.softmax(cross_attn, dim=-1)
+                
+                k_guided = k + guidance_strength * torch.matmul(cross_attn, k_inversion)
+                k = k_guided
+
+                v_share = info['feature'][feature_name].cuda()
+                v_ref = torch.load(f"/playpen-nas-ssd/luchao/projects/RF-Solver-Edit/feature/age_editing_directions_jiaye_improved_2_more_data/{info['person']}/30_70/{feature_name}.pth", weights_only=True).cuda().to(torch.bfloat16)
+                edit_weight = (info['target_age'] - info['age_low']) / (info['age_high'] - info['age_low'])
+                # t = (info['target_age'] - info['input_age']) / (90 - info['input_age'])
+                # t = np.clip(t, 0, 1)
+                # weight = 1 - 1 / (1 + np.exp(-10 * (t - 0.5)))
+                v_share = v_share + edit_weight * v_ref
+                # v_share[:, :, :512, :] = 0.0
+                dot_product = (v_share * v).sum(dim=-1, keepdim=True)
+                v_norm_sq = (v * v).sum(dim=-1, keepdim=True)
+                alpha = dot_product / (v_norm_sq + 1e-10)
+
+                alpha = alpha.repeat(1, 1, 1, v.shape[-1])
+                # alpha[:, :, :512, :] = 1.0
+
+                v = alpha * v
+
         # import pdb;pdb.set_trace()
         attn = attention(q, k, v, pe=pe)
  
@@ -309,34 +331,57 @@ class SingleStreamBlock(nn.Module):
 
         # Save the features in the memory
         if info['inject']:
-            feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
+            feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id_single']) + '_' + info['type'] + '_' + 'V'
+            feature_k = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id_single']) + '_' + info['type'] + '_' + 'K'
             # print("Single block feature name: ", feature_name)
             if info['inverse']:
-                # v[:, :, :512, :] = 0.0
                 info['feature'][feature_name] = v.cpu()
-                # print("Saved V from inversion branch in SINGLE BLOCK")
+                info['feature'][feature_k] = k.cpu()
             else:
-                # print("Using saved V in the editing branch in SINGLE BLOCK")
+                # k_share = info['feature'][feature_k].cuda()
+                # k_dot_product = (k_share * k).sum(dim=-1, keepdim=True)
+                # k_norm_sq = (k * k).sum(dim=-1, keepdim=True)
+                # k_alpha = k_dot_product / (k_norm_sq + 1e-10)
+
+                # k_alpha = k_alpha.repeat(1, 1, 1, k.shape[-1])
+                # k_alpha[:, :, :512, :] = 1.0
+
+                # k = k_alpha * k
+                k_inversion = info['feature'][feature_k].cuda()
+    
+                # Fixed guidance strength parameter
+                guidance_strength = 0.3  # Adjust this value to control identity-vs-edit balance
+                
+                # Temperature parameter for softmax - higher values make attention sharper
+                temperature = 1.0
+                
+                # Compute cross-attention between current keys and inversion keys
+                cross_attn = torch.matmul(k, k_inversion.transpose(-1, -2)) / (math.sqrt(k.shape[-1]) * temperature)
+                cross_attn = torch.softmax(cross_attn, dim=-1)
+                
+                # Use cross-attention to guide the keys
+                k_guided = k + guidance_strength * torch.matmul(cross_attn, k_inversion)
+                
+                # Use the guided keys
+                k = k_guided
+
                 v_share = info['feature'][feature_name].cuda()
-                v_share[:, :, :512, :] = 0.0
+                v_ref = torch.load(f"/playpen-nas-ssd/luchao/projects/RF-Solver-Edit/feature/age_editing_directions_jiaye_improved_2_more_data/{info['person']}/30_70/{feature_name}.pth", weights_only=True).cuda().to(torch.bfloat16)
+                edit_weight = (info['target_age'] - info['age_low']) / (info['age_high'] - info['age_low'])
+                # t = (info['target_age'] - info['input_age']) / (90 - info['input_age'])
+                # t = np.clip(t, 0, 1)
+                # weight = 1 - 1 / (1 + np.exp(-10 * (t - 0.5)))
+                v_share = v_share + edit_weight * v_ref
+                # v_share[:, :, :512, :] = 0.0
                 dot_product = (v_share * v).sum(dim=-1, keepdim=True)
                 v_norm_sq = (v * v).sum(dim=-1, keepdim=True)
                 alpha = dot_product / (v_norm_sq + 1e-10)
 
-                # save_alpha_as_image(alpha, info['id'], "/playpen-nas-ssd/gongbang/exp_output/alpha_vis/elizabeth/90")
-
                 alpha = alpha.repeat(1, 1, 1, v.shape[-1])
-                alpha[:, :, :512, :] = 1.0
+                # alpha[:, :, :512, :] = 1.0
 
                 v = alpha * v
-                # info['feature'][feature_name] = v.cpu()
-                # print("Successfully updated V to V used in editing in SINGLE BLOCK")
 
-                # v[:, :, 512:, :] = v_share[:, :, 512:, :]
-
-                # v_ref = torch.load(f"/playpen-nas-ssd/luchao/projects/RF-Solver-Edit/feature/age_editing_directions/mytm_pair/{feature_name}.pth", weights_only=True).cuda().to(torch.bfloat16)
-                # v_ref_weight = 0.5
-                # v = v - v_ref_weight * v_ref
 
         # compute attention
         attn = attention(q, k, v, pe=pe)

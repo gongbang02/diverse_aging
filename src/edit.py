@@ -158,8 +158,13 @@ def main(
     info['feature_path'] = args.feature_path
     info['feature'] = {}
     info['inject_step'] = args.inject
+    info['input_age'] = input_age
+    info['person'] = args.person
     print(f"running edit on target ages: {target_ages}")
     for target_age in target_ages:
+        info['target_age'] = target_age
+        info['age_low'] = 30
+        info['age_high'] = 70
         target_age_prompt = target_prompt.replace("TARGETAGE", str(target_age))
         print(f"Target prompt: {target_age_prompt}")
 
@@ -299,6 +304,7 @@ if __name__ == "__main__":
                         help='Path to LoRA weights directory')
     parser.add_argument('--input_age', type=int, default=30,
                         help='the input age of the source image')
+    parser.add_argument('--person', type=str)
 
     args = parser.parse_args()
 
