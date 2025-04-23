@@ -39,19 +39,11 @@ We have provided examples for image editing using FLUX as the backbone, which ca
 
 
 ## Image Stylization
-
+Here's a comparison of our method with other Flux-based image editing methods, as well as age transformation methods
 <p align="center">
-<img src="assets/repo_figures/Picture8.jpg" width="1080px"/>
+<img src="/repo_figures/visual_results.png" width="1080px"/>
 </p>
 
-
-
-
-# 📖 Method
-<p>
-<img src="assets/repo_figures/Picture2.jpg" width="1080px"/>
-We derive the exact formulation of the solution for Rectified Flow ODE. The non-linear part in this solution is processed by Taylor Expansion. Through higher order expansion, the approximation error in the solution is significantly reduced, thus achieving impressive performance on both text-to-image sampling and image/video inversion.
-</p>
 
 
 
