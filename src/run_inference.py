@@ -30,18 +30,7 @@ def run_edit(source_img, input_age, input_prompt, target_prompt, output_dir):
         f"--output_dir {output_dir} "
     )
     subprocess.run(cmd, shell=True)
-    
-    # return new_img
 
-# Function to process a block of two target ages, updating the source image for the next iteration
-# def process_target_block(source_img, current_input_age, target_age_pair, target_prompts, output_dir):
-#     """Process a block of two target ages, updating the source image for the next iteration."""
-#     # out_paths = []
-#     for target_age in target_age_pair:
-#         prompt_template = target_prompts.get(target_age, "A portrait of a {age}-year-old man with subtle aging features.")
-#         new_source = run_edit(source_img, current_input_age, target_age, prompt_template, output_dir)
-        # out_paths.append(new_source)
-    # return out_paths[-1], target_age_pair[-1]
 
 # -------------------------
 # Main processing starts here.
@@ -65,17 +54,17 @@ women = [
 
 persons = [
     "al", 
-    "charles", 
-    "chow", 
-    "diego", 
-    "jackie", 
-    "robert",
-    "elaine", 
-    "elizabeth", 
-    "jennifer", 
-    "nicole", 
-    "thatcher", 
-    "oprah",
+    # "charles", 
+    # "chow", 
+    # "diego", 
+    # "jackie", 
+    # "robert",
+    # "elaine", 
+    # "elizabeth", 
+    # "jennifer", 
+    # "nicole", 
+    # "thatcher", 
+    # "oprah",
 ]
 
 ethnicity = {
@@ -97,7 +86,7 @@ ethnicity = {
 for person in persons:
 
     input_folder = f"/playpen-nas-ssd/gongbang/test_inputs/{person}"
-    output_root_dir = f"/playpen-nas-ssd/gongbang/comparisons/ours/{person}/hairloss/"  # Change this to your output root folder
+    output_root_dir = f"/playpen-nas-ssd/gongbang/age_test/try_k/{person}/hairloss/"  # Change this to your output root folder
 
     # List all images in the input folder
     image_files = [f for f in os.listdir(input_folder) if os.path.isfile(os.path.join(input_folder, f))]
@@ -136,37 +125,23 @@ for person in persons:
         input_age = extract_input_age(img_path)
         print(f"Processing image: {img_filename}, Extracted input age: {input_age}")
 
-        # man_input_prompt = f"A portrait of a {input_age}-year-old {person_ethnicity} man."
-        man_input_prompt = ""
-        # woman_input_prompt = f"A portrait of a {input_age}-year-old {person_ethnicity} woman."
-        woman_input_prompt = ""
+        man_input_prompt = f"A portrait of a {input_age}-year-old {person_ethnicity} man."
+        # man_input_prompt = ""
+        woman_input_prompt = f"A portrait of a {input_age}-year-old {person_ethnicity} woman."
+        # woman_input_prompt = ""
         
         if person in men:
             inversion_prompt = man_input_prompt
         else:
             inversion_prompt = woman_input_prompt
 
-        # Generate target ages based on the input age
-        # target_ages = get_target_ages(input_age)
-        # print(f"Target ages for {img_filename}: {target_ages}")
-        
-        # Create output directory based on the input image filename
         output_dir = os.path.join(output_root_dir, os.path.splitext(img_filename)[0])
-        os.makedirs(output_dir, exist_ok=True)
+        if os.path.isdir(output_dir):
+            continue
+        os.makedirs(output_dir)
         print(f"Output directory created: {output_dir}")
         
-        # Split the target ages into blocks of 2
-        # blocks = [target_ages[i:i+2] for i in range(0, len(target_ages), 2)]
-        # print(f"Processing in blocks: {blocks}")
 
-        # Process the target ages in blocks
-        # current_source = img_path
-        # current_age = input_age
-        # for block in blocks:
-        #     print(f"\nProcessing block for target ages: {block}")
-        #     # current_source, current_age = process_target_block(current_source, current_age, block, target_prompt, output_dir)
-        #     # print(f"After processing block {block}, new input source is {current_source} and input age updated to {current_age}")
-        #     process_target_block(current_source, current_age, block, target_prompt, output_dir)
         run_edit(img_path, input_age, inversion_prompt, target_prompt, output_dir)
 
     print("Processing complete.")
