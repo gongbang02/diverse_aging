@@ -208,6 +208,8 @@ class DoubleStreamBlock(nn.Module):
         k = torch.cat((txt_k, img_k), dim=2)
         v = torch.cat((txt_v, img_v), dim=2)
 
+        # ---- this is the part where we perform edits with feature injection ----
+
         if info['inject']:
             feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
             feature_k = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'K'
@@ -219,6 +221,7 @@ class DoubleStreamBlock(nn.Module):
                 # Fixed guidance strength parameter
                 guidance_strength = 0.5  # Adjust this value to control identity-vs-edit balance
                 
+                # Use the shared k features to compute the cross-attention between the shared features and the current keys
                 k_cross_attn = torch.matmul(k_inversion, k.transpose(-1, -2)) / math.sqrt(k_inversion.shape[-1])
                 k_cross_attn = torch.softmax(k_cross_attn, dim=-1)
 
@@ -228,6 +231,7 @@ class DoubleStreamBlock(nn.Module):
                 k_guided = k_inversion + guidance_strength * k_cross_attn
                 k = k_guided
 
+                # Use shared features to guide the values
                 v_share = info['feature'][feature_name].cuda()
                 v_share[:, :, :512, :] = 0.0
                 dot_product = (v_share * v).sum(dim=-1, keepdim=True)
@@ -238,7 +242,9 @@ class DoubleStreamBlock(nn.Module):
                 alpha[:, :, :512, :] = 1.0
 
                 v = alpha * v
-        # import pdb;pdb.set_trace()
+
+        # ---- this is the part where we perform edits with feature injection ----
+        
         attn = attention(q, k, v, pe=pe)
  
         txt_attn, img_attn = attn[:, : txt.shape[1]], attn[:, txt.shape[1] :]
@@ -294,6 +300,8 @@ class SingleStreamBlock(nn.Module):
         q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         q, k = self.norm(q, k, v)
 
+        # ---- this is the part where we perform edits with feature injection ----
+
         # Save the features in the memory
         if info['inject']:
             feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
@@ -306,6 +314,7 @@ class SingleStreamBlock(nn.Module):
                 # Fixed guidance strength parameter
                 guidance_strength = 0.5  # Adjust this value to control identity-vs-edit balance
                 
+                # Use the shared k features to compute the cross-attention between the shared features and the current keys
                 k_cross_attn = torch.matmul(k_inversion, k.transpose(-1, -2)) / math.sqrt(k_inversion.shape[-1])
                 k_cross_attn = torch.softmax(k_cross_attn, dim=-1)
 
@@ -315,23 +324,22 @@ class SingleStreamBlock(nn.Module):
                 k_guided = k_inversion + guidance_strength * k_cross_attn
                 k = k_guided
 
+                # Use shared features to guide the values
                 v_share = info['feature'][feature_name].cuda()
-                v_ref = torch.load(f"/playpen-nas-ssd/luchao/projects/RF-Solver-Edit/feature/age_editing_directions_jiaye_improved_2_more_data/{info['person']}/30_70/{feature_name}.pth", weights_only=True).cuda().to(torch.bfloat16)
-                edit_weight = (info['target_age'] - info['age_low']) / (info['age_high'] - info['age_low'])
-                # t = (info['target_age'] - info['input_age']) / (90 - info['input_age'])
-                # t = np.clip(t, 0, 1)
-                # weight = 1 - 1 / (1 + np.exp(-10 * (t - 0.5)))
-                v_share = v_share + edit_weight * v_ref
-                # v_share[:, :, :512, :] = 0.0
+                # v_ref = torch.load(f"/playpen-nas-ssd/luchao/projects/RF-Solver-Edit/feature/age_editing_directions_jiaye_improved_2_more_data/{info['person']}/30_70/{feature_name}.pth", weights_only=True).cuda().to(torch.bfloat16)
+                # edit_weight = (info['target_age'] - info['age_low']) / (info['age_high'] - info['age_low'])
+                # v_share = v_share + edit_weight * v_ref
+                v_share[:, :, :512, :] = 0.0
                 dot_product = (v_share * v).sum(dim=-1, keepdim=True)
                 v_norm_sq = (v * v).sum(dim=-1, keepdim=True)
                 alpha = dot_product / (v_norm_sq + 1e-10)
 
                 alpha = alpha.repeat(1, 1, 1, v.shape[-1])
-                # alpha[:, :, :512, :] = 1.0
+                alpha[:, :, :512, :] = 1.0
 
                 v = alpha * v
 
+        # ---- this is the part where we perform edits with feature injection ----
 
         # compute attention
         attn = attention(q, k, v, pe=pe)
