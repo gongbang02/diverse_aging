@@ -195,50 +195,6 @@ class DoubleStreamBlock(nn.Module):
 
         img_q, img_k = self.img_attn.norm(img_q, img_k, img_v)
 
-        # if info['inject']:
-        #     if info['inverse']:
-        #         print("!save! ",info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'])
-        #         torch.save(img_q, info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'Q' + '.pth')
-        #     if not info['inverse']:
-        #         print("!load! ", info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'])
-        #         img_q = torch.load(info['feature_path'] + str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'Q' + '.pth', weights_only=True)
-
-        # if info['inject']:
-        #     feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
-        #     feature_k = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'K'
-        #     # print("Double block feature name: ", feature_name)
-        #     if info['inverse']:
-        #         info['feature'][feature_name] = img_v.cpu()
-        #         info['feature'][feature_k] = img_k.cpu()
-        #     else:
-
-        #         # img_k_share = info['feature'][feature_k].cuda()
-        #         # img_k_dot_product = (img_k_share * img_k).sum(dim=-1, keepdim=True)
-        #         # img_k_norm_sq = (img_k * img_k).sum(dim=-1, keepdim=True)
-        #         # k_alpha = img_k_dot_product / (img_k_norm_sq + 1e-10)
-
-        #         # k_alpha = k_alpha.repeat(1, 1, 1, img_k.shape[-1])
-        #         # img_k = k_alpha * img_k
-        #         img_k = info['feature'][feature_k].cuda()
-
-        #         img_v_share = info['feature'][feature_name].cuda()
-        #         dot_product = (img_v_share * img_v).sum(dim=-1, keepdim=True)
-        #         img_v_norm_sq = (img_v * img_v).sum(dim=-1, keepdim=True)
-        #         alpha = dot_product / (img_v_norm_sq + 1e-10)
-
-        #         # Save the alpha as image
-        #         # save_alpha_as_image(alpha, info['id'], "/playpen-nas-ssd/gongbang/exp_output/alpha_vis/elizabeth/90")
-
-        #         alpha = alpha.repeat(1, 1, 1, img_v.shape[-1])
-        #         img_v = alpha * img_v
-
-        #         # info['feature'][feature_name] = img_v.cpu()
-        #         # print("Successfully updated img_v to img_v used in editing in DOUBLE BLOCK")
-
-        #         # v_ref = torch.load(f"/playpen-nas-ssd/luchao/projects/RF-Solver-Edit/feature/age_editing_directions/mytm_pair/{feature_name}.pth", weights_only=True).cuda().to(torch.bfloat16)[:, :, 512:, :]
-        #         # v_ref_weight = 0.5
-        #         # img_v = img_v - v_ref_weight * v_ref
-
         # prepare txt for attention
         txt_modulated = self.txt_norm1(txt)
         txt_modulated = (1 + txt_mod1.scale) * txt_modulated + txt_mod1.shift
@@ -246,8 +202,6 @@ class DoubleStreamBlock(nn.Module):
         txt_q, txt_k, txt_v = rearrange(txt_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         txt_q, txt_k = self.txt_attn.norm(txt_q, txt_k, txt_v)
 
-        
-        # txt_v[:, :, :, :] = 0.0
 
         # run actual attention
         q = torch.cat((txt_q, img_q), dim=2) #[8, 24, 512, 128] + [8, 24, 900, 128] -> [8, 24, 1412, 128]
@@ -269,7 +223,6 @@ class DoubleStreamBlock(nn.Module):
                 k_cross_attn = torch.softmax(k_cross_attn, dim=-1)
 
                 k_cross_attn = torch.matmul(k_cross_attn, k)
-                # cross_attn[:, :, :512, :] = 0.0
                 
                 # Use cross-attention to guide the keys
                 k_guided = k_inversion + guidance_strength * k_cross_attn
@@ -341,14 +294,6 @@ class SingleStreamBlock(nn.Module):
         q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         q, k = self.norm(q, k, v)
 
-        # Note: If the memory of your device is not enough, you may consider uncomment the following code.
-        # if info['inject'] and info['id'] > 19:
-        #     store_path = os.path.join(info['feature_path'], str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V' + '.pth')
-        #     if info['inverse']:
-        #         torch.save(v, store_path)
-        #     if not info['inverse']:
-        #         v = torch.load(store_path, weights_only=True)
-
         # Save the features in the memory
         if info['inject']:
             feature_name = str(info['t']) + '_' + str(info['second_order']) + '_' + str(info['id']) + '_' + info['type'] + '_' + 'V'
@@ -365,20 +310,25 @@ class SingleStreamBlock(nn.Module):
                 k_cross_attn = torch.softmax(k_cross_attn, dim=-1)
 
                 k_cross_attn = torch.matmul(k_cross_attn, k)
-                # cross_attn[:, :, :512, :] = 0.0
                 
                 # Use cross-attention to guide the keys
                 k_guided = k_inversion + guidance_strength * k_cross_attn
                 k = k_guided
 
                 v_share = info['feature'][feature_name].cuda()
-                v_share[:, :, :512, :] = 0.0
+                v_ref = torch.load(f"/playpen-nas-ssd/luchao/projects/RF-Solver-Edit/feature/age_editing_directions_jiaye_improved_2_more_data/{info['person']}/30_70/{feature_name}.pth", weights_only=True).cuda().to(torch.bfloat16)
+                edit_weight = (info['target_age'] - info['age_low']) / (info['age_high'] - info['age_low'])
+                # t = (info['target_age'] - info['input_age']) / (90 - info['input_age'])
+                # t = np.clip(t, 0, 1)
+                # weight = 1 - 1 / (1 + np.exp(-10 * (t - 0.5)))
+                v_share = v_share + edit_weight * v_ref
+                # v_share[:, :, :512, :] = 0.0
                 dot_product = (v_share * v).sum(dim=-1, keepdim=True)
                 v_norm_sq = (v * v).sum(dim=-1, keepdim=True)
                 alpha = dot_product / (v_norm_sq + 1e-10)
 
                 alpha = alpha.repeat(1, 1, 1, v.shape[-1])
-                alpha[:, :, :512, :] = 1.0
+                # alpha[:, :, :512, :] = 1.0
 
                 v = alpha * v
 

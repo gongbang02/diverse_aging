@@ -15,7 +15,7 @@ def extract_input_age(image_path):
 
 
 # Function to run the edit.py script with the given parameters
-def run_edit(source_img, input_age, input_prompt, target_prompt, output_dir):
+def run_edit(source_img, input_age, input_prompt, target_prompt, output_dir, person):
     cmd = (
         f"python edit.py "
         f"--source_prompt '{input_prompt}' "
@@ -28,6 +28,7 @@ def run_edit(source_img, input_age, input_prompt, target_prompt, output_dir):
         f"--name 'flux-dev' "
         f"--offload "
         f"--output_dir {output_dir} "
+        f"--person {person} "
     )
     subprocess.run(cmd, shell=True)
 
@@ -102,7 +103,7 @@ for person in persons:
     woman_alcoholism = f"A portrait of a TARGETAGE-year-old {person_ethnicity} woman with a slightly reddened complexion, visible broken capillaries around the nose and cheeks, and uneven skin tone. Fine lines and deeper wrinkles appear around her eyes and mouth, with mild puffiness in the eyelids and under-eye area. Her skin looks dehydrated, with a dull texture and slight sagging around the jawline. Dark circles and a tired expression give her a worn appearance."
     woman_loseweight = f"A portrait of a TARGETAGE-year-old {person_ethnicity} woman with a lean, well-defined face, prominent cheekbones, and a more sculpted jawline. Her skin appears firm and slightly taut, with reduced fullness around her cheeks and under her chin. Fine lines around her eyes and mouth are subtly visible, but her complexion looks radiant and healthy. Her eyes appear more alert, and her overall facial structure is more toned, reflecting improved muscle definition and lower body fat."
     woman_goodskin = f"A portrait of a TARGETAGE-year-old {person_ethnicity} woman with smooth, even-toned skin, a radiant complexion, and a healthy glow. Fine lines around her eyes and mouth are minimal, with firm, well-hydrated skin that appears plump and elastic. Her pores are refined, and her under-eye area looks bright and refreshed, free of noticeable dark circles or puffiness. Her overall facial appearance is youthful, vibrant, and well-maintained."
-    woman_age = f"A portrait of a TARGETAGE-year-old {person_ethnicity} woman."
+    woman_age = f"a photo of person at TARGETAGE years old"
 
     man_weight = f"A portrait of a TARGETAGE-year-old {person_ethnicity} man with a fuller, rounder face, softened jawline, and less-defined chin. His cheeks appear plumper, with subtle fat deposits around the neck. Nasolabial folds are slightly deeper, and his eyelids may look puffier. His skin appears smoother but slightly stretched, with a fuller under-chin area contributing to a softer facial contour."
     man_hairloss = f"A portrait of a TARGETAGE-year-old {person_ethnicity} man with a receding hairline and thinning hair on the crown. His forehead appears more prominent, with fine lines becoming more visible. The remaining hair is slightly finer, and sparse areas expose more of the scalp. His eyebrows may appear slightly thinner, and his facial features seem more defined due to reduced hair framing his face."
@@ -111,12 +112,12 @@ for person in persons:
     man_alcoholism = f"A portrait of a TARGETAGE-year-old {person_ethnicity} man with a slightly reddened complexion, visible broken capillaries around his nose and cheeks, and an uneven skin tone. His face appears slightly puffy, especially around the eyes and jawline, with dark circles and mild under-eye bags. Fine lines on his forehead and around his mouth are more pronounced, and his skin looks dehydrated, dull, and slightly sagging. His lips may appear dry, and his overall expression seems fatigued and worn."
     man_loseweight = f"A portrait of a TARGETAGE-year-old {person_ethnicity} man with a lean, well-defined face, prominent cheekbones, and a sharper jawline. His skin appears firm and slightly taut, with reduced fullness around the cheeks and neck. Fine lines on his forehead and around his eyes are subtly visible, but his complexion looks healthier and more vibrant. His eyes appear more alert, and his overall facial structure is more chiseled, reflecting improved muscle tone and lower body fat."
     man_goodskin = f"A portrait of a TARGETAGE-year-old {person_ethnicity} man with smooth, even-toned skin, a well-hydrated complexion, and a healthy glow. Fine lines on his forehead and around his eyes are minimal, and his skin appears firm with good elasticity. His pores are refined, and his under-eye area looks refreshed without noticeable dark circles or puffiness. His overall facial appearance is vibrant, youthful, and well-maintained."
-    man_age = f"A portrait of a TARGETAGE-year-old {person_ethnicity} man."
+    man_age = f"a photo of person at TARGETAGE years old"
 
     if person in men:
-        target_prompt = man_hairloss
+        target_prompt = man_age
     else:
-        target_prompt = woman_hairloss
+        target_prompt = woman_age
 
     for img_filename in image_files:
         img_path = os.path.join(input_folder, img_filename)
