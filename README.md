@@ -32,7 +32,6 @@ python ./src/edit.py \
     --output_dir /path-to-output-dir
 ```
 
-We have provided examples for image editing using FLUX as the backbone, which can be found <a href="./scripts">Here</a>.</strong>
 
 
 # 🎨 Gallery
