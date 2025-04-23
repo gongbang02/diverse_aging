@@ -20,7 +20,7 @@ For image editing, we employ FLUX as the backbone, which comprises several doubl
 
 To perform image editing with your own image, run
 ```bash
-python edit.py \
+python ./src/edit.py \
     --source_prompt 'a photo of male/female at {INPUT AGE} years old' \
     --target_prompt YOUR_TARGET_PROMPT \
     --guidance 2 \
